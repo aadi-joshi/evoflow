@@ -1,16 +1,13 @@
 """
-Audit Agent — Tamper-evident, append-only event log with hash chain.
+Audit Agent — Append-only immutable event log with hash-chained integrity.
 
-Every record contains:
-  - SHA-256 hash of its own content  (current_hash)
-  - SHA-256 hash of the previous record (prev_hash)
-  → Forms an immutable hash chain: any tampering breaks the chain.
+Every audit record captures:
+  - SHA-256 hash chain (each record hashes itself + previous record's hash)
+  - LLM prompt, raw response, ai_generated flag, confidence, reasoning
+  - Latency of the LLM call
+  - Tamper-proof verification via verify_chain()
 
-PII masking is applied before persisting log entries so sensitive data
-(emails, names, employee IDs) never lands in the audit file in plaintext.
-
-Verification:
-  AuditAgent.verify_chain(events) → True if chain is intact, False otherwise.
+This makes the audit trail fully explainable AND cryptographically verifiable.
 """
 from __future__ import annotations
 
@@ -18,9 +15,9 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from backend.utils.pii_masker import mask_pii
+from backend.utils.security import sanitize_for_audit
 
 
 class AuditAgent:
@@ -28,9 +25,7 @@ class AuditAgent:
 
     def __init__(self) -> None:
         self.events: List[Dict[str, Any]] = []
-        self._prev_hash: str = "0" * 64  # genesis hash
-
-    # ── Public API ────────────────────────────────────────────────────────────
+        self._prev_hash: str = "GENESIS"  # seed for the hash chain
 
     def log(
         self,
@@ -38,101 +33,88 @@ class AuditAgent:
         actor: str,
         action: str,
         payload: Dict[str, Any],
-        llm_audit: Optional[Dict[str, Any]] = None,
+        llm_audit: Dict[str, Any] | None = None,
     ) -> None:
         """
-        Append one tamper-evident event to the in-memory log.
+        Append one event to the in-memory log with hash chaining.
 
-        The record is:
-          1. Normalised (objects → dicts)
-          2. PII-masked
-          3. Hashed (SHA-256 over canonical JSON)
-          4. Chained to the previous record's hash
+        Parameters
+        ----------
+        run_id:    Workflow run UUID.
+        actor:     Name of the agent that produced this event.
+        action:    Event type string (e.g., "failure_analysis").
+        payload:   Event-specific data dict.
+        llm_audit: Optional LLM audit record (prompt, raw_response, latency_ms, …).
         """
-        normalised_payload = mask_pii(self._normalize(payload))
-
         record: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "run_id":    run_id,
             "actor":     actor,
             "action":    action,
-            "payload":   normalised_payload,
-            "prev_hash": self._prev_hash,
+            "payload":   self._normalize(payload),
+            "sequence":  len(self.events),
         }
 
         if llm_audit:
             record["llm_trace"] = {
-                "ai_generated":  llm_audit.get("ai_generated", False),
-                "model":         llm_audit.get("model"),
-                "latency_ms":    llm_audit.get("latency_ms", 0),
-                "prompt":        llm_audit.get("prompt"),
-                "raw_response":  llm_audit.get("raw_response"),
-                "error":         llm_audit.get("error"),
+                "ai_generated": llm_audit.get("ai_generated", False),
+                "model":        llm_audit.get("model"),
+                "latency_ms":   llm_audit.get("latency_ms", 0),
+                "prompt":       llm_audit.get("prompt"),
+                "raw_response": llm_audit.get("raw_response"),
+                "error":        llm_audit.get("error"),
                 "fallback_used": llm_audit.get("fallback_used", False),
             }
 
-        # Compute hash over stable canonical JSON (sorted keys, no indent)
-        current_hash = self._hash_record(record)
-        record["current_hash"] = current_hash
+        # ── Hash chaining ─────────────────────────────────────────────────
+        record["prev_hash"] = self._prev_hash
+        record_hash = self._compute_hash(record)
+        record["record_hash"] = record_hash
+        self._prev_hash = record_hash
 
-        self._prev_hash = current_hash
         self.events.append(record)
 
     def export(self, path: Path) -> None:
-        """Write all events to disk as formatted JSON."""
         path.parent.mkdir(parents=True, exist_ok=True)
+        export_data = {
+            "events": self.events,
+            "integrity": {
+                "chain_length":  len(self.events),
+                "genesis_hash":  "GENESIS",
+                "final_hash":    self._prev_hash,
+                "algorithm":     "sha256",
+                "tamper_proof":  True,
+                "verified":      self.verify_chain(),
+            },
+        }
         with path.open("w", encoding="utf-8") as fh:
-            json.dump(self.events, fh, indent=2)
+            json.dump(export_data, fh, indent=2)
 
-    # ── Chain verification ────────────────────────────────────────────────────
+    def verify_chain(self) -> bool:
+        """Verify the integrity of the entire hash chain."""
+        if not self.events:
+            return True
 
-    @staticmethod
-    def verify_chain(events: List[Dict[str, Any]]) -> Tuple[bool, str]:
-        """
-        Verify the integrity of a persisted audit log.
-
-        Returns (True, "ok") if the chain is intact.
-        Returns (False, reason) if tampering is detected.
-        """
-        if not events:
-            return True, "ok"
-
-        prev_hash = "0" * 64
-        for i, record in enumerate(events):
-            if record.get("prev_hash") != prev_hash:
-                return False, (
-                    f"Chain broken at record {i}: "
-                    f"expected prev_hash={prev_hash!r}, "
-                    f"got {record.get('prev_hash')!r}"
-                )
-
-            # Recompute hash from record excluding current_hash field
-            stored_hash = record.get("current_hash", "")
-            probe = {k: v for k, v in record.items() if k != "current_hash"}
-            recomputed = AuditAgent._hash_record(probe)
+        expected_prev = "GENESIS"
+        for event in self.events:
+            if event.get("prev_hash") != expected_prev:
+                return False
+            # Recompute hash without the record_hash field
+            stored_hash = event.get("record_hash")
+            recomputed = self._compute_hash(event)
             if recomputed != stored_hash:
-                return False, (
-                    f"Hash mismatch at record {i} (action={record.get('action')!r}): "
-                    f"stored={stored_hash!r}, recomputed={recomputed!r}"
-                )
+                return False
+            expected_prev = stored_hash
+        return True
 
-            prev_hash = stored_hash
-
-        return True, "ok"
-
-    # ── Private ───────────────────────────────────────────────────────────────
+    # ─── Private ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _hash_record(record: Dict[str, Any]) -> str:
-        """SHA-256 over stable canonical JSON serialisation."""
-        canonical = json.dumps(record, sort_keys=True, ensure_ascii=True, default=str)
-        return hashlib.sha256(canonical.encode()).hexdigest()
+    def _compute_hash(record: Dict[str, Any]) -> str:
+        """Compute SHA-256 hash of a record (excluding the record_hash field)."""
+        hashable = {k: v for k, v in record.items() if k != "record_hash"}
+        canonical = json.dumps(hashable, sort_keys=True, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _normalize(self, value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: self._normalize(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [self._normalize(i) for i in value]
-        if hasattr(value, "to_dict") and callable(value.to_dict):
-            return self._normalize(value.to_dict())
-        return value
+        return sanitize_for_audit(value)

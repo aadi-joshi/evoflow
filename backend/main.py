@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 
 from backend.services.workflow_engine import WorkflowEngine
+from backend.utils.env import load_env
+
+load_env()
 
 
 def demo_input() -> dict:

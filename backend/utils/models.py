@@ -77,6 +77,7 @@ class WorkflowState:
     metrics: Dict[str, Any] = field(default_factory=dict)
     impact: Dict[str, Any] = field(default_factory=dict)
     clarifications: List[Dict[str, Any]] = field(default_factory=list)
+    integration_receipts: List[Dict[str, Any]] = field(default_factory=list)
 
     # Keep backward compat — onboarding callers use state.employee
     @property

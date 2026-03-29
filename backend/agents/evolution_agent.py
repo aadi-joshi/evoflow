@@ -141,15 +141,37 @@ class EvolutionAgent:
         write_json(self.memory_path, self.memory)
 
         # ── 5. Return ─────────────────────────────────────────────────────
+        # Compute per-step failure rates for all steps
+        all_step_rates: Dict[str, float] = {}
+        for sn, stat in step_stats.items():
+            total = stat.get("success", 0) + stat.get("failed", 0)
+            all_step_rates[sn] = round(stat.get("failed", 0) / total, 3) if total else 0.0
+
+        # System reliability score: 1 - (weighted avg failure rate)
+        if all_step_rates:
+            system_reliability = round(
+                1.0 - sum(all_step_rates.values()) / len(all_step_rates), 3
+            )
+        else:
+            system_reliability = 1.0
+
+        # Step reordering: recommend moving high-failure steps later
+        step_order_rec = sorted(
+            all_step_rates.items(), key=lambda x: x[1]
+        )  # lowest failure rate first
+
         return {
-            "jira_failure_rate":  round(jira_failure_rate, 2),
-            "updated_strategy":   self.memory["strategy"].get("jira", {}),
-            "total_runs":         self.memory["total_runs"],
-            "reasoning":          evolved.get("reasoning", ""),
-            "changes_made":       evolved.get("changes_made", []),
-            "confidence":         evolved.get("confidence", 0.5),
-            "trend_analysis":     evolved.get("trend_analysis", ""),
-            "ai_generated":       ai_generated,
+            "jira_failure_rate":       round(jira_failure_rate, 2),
+            "updated_strategy":        self.memory["strategy"].get("jira", {}),
+            "total_runs":              self.memory["total_runs"],
+            "reasoning":               evolved.get("reasoning", ""),
+            "changes_made":            evolved.get("changes_made", []),
+            "confidence":              evolved.get("confidence", 0.5),
+            "trend_analysis":          evolved.get("trend_analysis", ""),
+            "ai_generated":            ai_generated,
+            "all_step_failure_rates":  all_step_rates,
+            "system_reliability":      system_reliability,
+            "recommended_step_order":  [s[0] for s in step_order_rec],
         }
 
     # ─── Private ─────────────────────────────────────────────────────────────

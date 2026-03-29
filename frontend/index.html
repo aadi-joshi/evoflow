@@ -1,129 +1,223 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EvoFlow AI — Autonomous Enterprise Workflow System</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EvoFlow AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=20260329final12">
 </head>
-<body>
-<div class="shell">
-  <header class="topbar">
-    <div class="topbar-left">
-      <span class="logo-mark">EF</span>
-      <span class="logo-text">EvoFlow AI</span>
-      <span class="logo-sub">Autonomous Enterprise Workflows</span>
+
+<body class="landing-active">
+  <section class="landing-screen" id="landingScreen" aria-label="EvoFlow Landing">
+    <div class="landing-particles" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span><span></span>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="run">Run Workflow</button>
-      <button class="tab" data-tab="history">History</button>
-      <button class="tab" data-tab="learning">Evolution</button>
-      <button class="tab" data-tab="metrics">Metrics</button>
-      <button class="tab" data-tab="benchmark">Benchmark</button>
-    </nav>
-    <div class="topbar-right">
-      <span class="ai-badge" id="aiBadge" title="AI Status">AI: checking…</span>
-      <button class="btn-reset" id="btnReset" title="Reset demo state">Reset Demo</button>
-      <span class="status-dot" id="engineStatus"></span>
-      <span class="status-label" id="engineStatusLabel">Idle</span>
+    <div class="landing-hero">
+      <p class="landing-kicker">EvoFlow AI</p>
+      <h1>Autonomous workflow runtime for resilient operations</h1>
+      <p>EvoFlow orchestrates multi-agent execution, handles recoverable failures with adaptive strategies, and
+        preserves a full audit trail for enterprise trust.</p>
+      <button type="button" class="primary-button" id="btnGetStarted">Get Started</button>
     </div>
-  </header>
+  </section>
 
-  <!-- HUMAN-IN-THE-LOOP MODAL -->
-  <div class="hitl-overlay" id="hitlOverlay" style="display:none">
-    <div class="hitl-modal">
-      <div class="hitl-header">
-        <span class="hitl-icon">🤔</span>
-        <span class="hitl-title">Human Input Required</span>
-        <span class="hitl-badge">HITL</span>
-      </div>
-      <div class="hitl-step-label">Step: <span id="hitlStepName"></span></div>
-      <div class="hitl-question" id="hitlQuestion"></div>
-      <div class="hitl-options" id="hitlOptions"></div>
-      <div class="hitl-input-row">
-        <input type="text" class="hitl-input" id="hitlAnswer" placeholder="Type your answer or select an option above…">
-        <button class="btn-hitl-submit" id="btnHitlSubmit">Submit</button>
-      </div>
-      <div class="hitl-timer" id="hitlTimer">5:00 remaining before auto-escalation</div>
-    </div>
-  </div>
-
-  <!-- RUN TAB -->
-  <section class="tab-panel active" id="panel-run">
-    <div class="run-layout">
-
-      <!-- Left sidebar -->
-      <aside class="run-form-panel">
-
-        <!-- Workflow selector -->
-        <div class="panel-header">Select Workflow</div>
-        <div class="workflow-selector">
-          <button class="wf-btn active" data-wf="employee_onboarding">
-            <span class="wf-icon">👤</span>
-            <div class="wf-info">
-              <div class="wf-name">Employee Onboarding</div>
-              <div class="wf-desc">Account creation, buddy, orientation</div>
-            </div>
-          </button>
-          <button class="wf-btn" data-wf="meeting_action">
-            <span class="wf-icon">📋</span>
-            <div class="wf-info">
-              <div class="wf-name">Meeting to Action</div>
-              <div class="wf-desc">Transcript → tasks → notifications</div>
-            </div>
-          </button>
-          <button class="wf-btn" data-wf="sla_breach">
-            <span class="wf-icon">⚡</span>
-            <div class="wf-info">
-              <div class="wf-name">SLA Breach Prevention</div>
-              <div class="wf-desc">Detect risk → reroute → audit</div>
-            </div>
-          </button>
+  <div class="app-shell" id="appShell" hidden>
+    <header class="app-header">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-label="EvoFlow monogram">
+          <span class="logo-letter">E</span>
+          <span class="logo-pin"></span>
         </div>
-
-        <!-- Simulation settings -->
-        <details class="sim-settings">
-          <summary class="sim-summary">Simulation Settings</summary>
-          <div class="sim-body" id="simBody">
-            <div class="sim-hint">Adjust per-step failure probability. 0 = never fails, 1 = always fails.</div>
-            <div id="simSliders"></div>
-          </div>
-        </details>
-
-        <!-- Onboarding form -->
-        <div class="wf-form" id="form-employee_onboarding">
-          <div class="panel-header" style="margin-top:12px">Employee Details</div>
-          <form id="runForm" class="emp-form">
-            <div class="field-group"><label>Employee ID</label>
-              <input type="text" id="f-id" value="E-1042" required></div>
-            <div class="field-group"><label>Full Name</label>
-              <input type="text" id="f-name" value="Aarav Mehta" required></div>
-            <div class="field-group"><label>Email</label>
-              <input type="email" id="f-email" value="aarav.mehta@company.com" required></div>
-            <div class="field-group"><label>Department</label>
-              <input type="text" id="f-dept" value="Data Platform" required></div>
-            <div class="field-group"><label>Role</label>
-              <input type="text" id="f-role" value="Senior Data Engineer" required></div>
-            <div class="field-group"><label>Location</label>
-              <input type="text" id="f-loc" value="Bengaluru" required></div>
-            <div class="field-group"><label>Start Date</label>
-              <input type="date" id="f-date" value="2026-04-01" required></div>
-            <button type="submit" class="btn-run" id="btnRun">
-              <span class="btn-icon">▶</span> Execute Workflow
-            </button>
-          </form>
+        <div>
+          <p class="brand-eyebrow">Autonomous Enterprise Workflow Runtime</p>
+          <h1 class="brand-title">EvoFlow AI</h1>
         </div>
+      </div>
 
-        <!-- Meeting form -->
-        <div class="wf-form" id="form-meeting_action" style="display:none">
-          <div class="panel-header" style="margin-top:12px">Meeting Details</div>
-          <form id="meetingForm" class="emp-form">
-            <div class="field-group"><label>Meeting Title</label>
-              <input type="text" id="m-title" value="Q2 Planning Sync"></div>
-            <div class="field-group"><label>Participants (comma-separated)</label>
-              <input type="text" id="m-participants" value="Priya Sharma, Rohan Verma, Ananya Singh, Dev Kumar"></div>
-            <div class="field-group"><label>Meeting Transcript</label>
-              <textarea id="m-transcript" rows="9" class="transcript-input">Priya Sharma: Alright everyone, let's get started. We need to finalize the Q2 roadmap by end of this week.
+      <nav class="view-tabs">
+        <button type="button" class="view-tab active" data-tab="run">Run</button>
+        <button type="button" class="view-tab" data-tab="history">History</button>
+        <button type="button" class="view-tab" data-tab="learning">Evolution</button>
+      </nav>
+
+      <div class="header-actions">
+        <div class="integration-badges">
+          <span class="status-chip" id="aiBadge">AI checking…</span>
+          <span class="status-chip" id="slackBadge">Slack unknown</span>
+          <span class="status-chip" id="emailBadge">Email unknown</span>
+        </div>
+        <div class="engine-status-pill">
+          <span class="engine-dot" id="engineStatus"></span>
+          <span id="engineStatusLabel">Idle</span>
+        </div>
+        <button type="button" class="ghost-button" id="btnReset">Reset State</button>
+      </div>
+    </header>
+
+    <div class="hitl-overlay" id="hitlOverlay" style="display:none">
+      <div class="hitl-modal">
+        <div class="modal-topline">
+          <span class="modal-badge">HITL</span>
+          <span class="modal-title">Clarification Required</span>
+        </div>
+        <p class="modal-step">Blocked at <span id="hitlStepName"></span></p>
+        <p class="modal-question" id="hitlQuestion"></p>
+        <div class="modal-options" id="hitlOptions"></div>
+        <div class="modal-input-row">
+          <input type="text" id="hitlAnswer" class="modal-input"
+            placeholder="Type a response or select an option above">
+          <button type="button" id="btnHitlSubmit" class="primary-button compact">Submit</button>
+        </div>
+        <p class="modal-timer" id="hitlTimer">5:00 remaining before auto-escalation</p>
+      </div>
+    </div>
+
+    <section class="view-panel active" id="panel-run">
+      <div class="run-page-nav" aria-label="Run workspace pages">
+        <button type="button" class="run-page-tab" data-run-view="setup">Setup</button>
+        <button type="button" class="run-page-tab" data-run-view="live">Live</button>
+        <button type="button" class="run-page-tab" data-run-view="intel">Intelligence</button>
+      </div>
+      <div class="run-grid">
+        <aside class="panel control-panel run-section run-section-setup">
+          <section class="panel-section sidebar-brand">
+            <div class="sidebar-logo" aria-label="EvoFlow monogram">
+              <span class="logo-letter">E</span>
+              <span class="logo-pin"></span>
+            </div>
+            <div>
+              <p class="section-eyebrow">Control Tower</p>
+              <h2>EvoFlow AI</h2>
+              <p class="section-note">Autonomous workflow orchestration with resilient recovery and audit-grade
+                traceability.</p>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Workflow</p>
+                <h2>Choose a flow</h2>
+              </div>
+            </div>
+            <div class="workflow-stack">
+              <button type="button" class="workflow-card active" data-wf="employee_onboarding">
+                <span class="workflow-icon" aria-hidden="true"></span>
+                <span class="workflow-copy">
+                  <strong>Employee Onboarding</strong>
+                  <small>Provision access, coordinate orientation, deliver welcome communications.</small>
+                </span>
+              </button>
+              <button type="button" class="workflow-card" data-wf="meeting_action">
+                <span class="workflow-icon" aria-hidden="true"></span>
+                <span class="workflow-copy">
+                  <strong>Meeting to Action</strong>
+                  <small>Turn transcripts into owners, tasks, and clean follow-up.</small>
+                </span>
+              </button>
+              <button type="button" class="workflow-card" data-wf="sla_breach">
+                <span class="workflow-icon" aria-hidden="true"></span>
+                <span class="workflow-copy">
+                  <strong>SLA Breach Prevention</strong>
+                  <small>Detect risk, reroute approvals, and notify stakeholders.</small>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Mode</p>
+                <h2>Demo controls</h2>
+              </div>
+            </div>
+            <div class="toggle-group">
+              <label class="toggle-card">
+                <span>
+                  <strong>Simulation</strong>
+                  <small>Use per-step failure controls and deterministic scenarios.</small>
+                </span>
+                <input type="checkbox" id="simulationToggle" checked>
+                <span class="toggle-switch"></span>
+              </label>
+              <label class="toggle-card">
+                <span>
+                  <strong>Real integrations</strong>
+                  <small>Deliver live Slack and real-capable email where configured.</small>
+                </span>
+                <input type="checkbox" id="realModeToggle">
+                <span class="toggle-switch"></span>
+              </label>
+            </div>
+            <div class="demo-block">
+              <label class="field-label" for="demoScenarioSelect">Demo scenario</label>
+              <select id="demoScenarioSelect" class="field-input"></select>
+              <button type="button" class="primary-button full-width" id="btnRunDemo">Run Workflow</button>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Input</p>
+                <h2>Configure payload</h2>
+              </div>
+            </div>
+
+            <div class="form-switcher">
+              <form id="runForm" class="workflow-form">
+                <label class="field-group">
+                  <span class="field-label">Employee ID</span>
+                  <input class="field-input" type="text" id="f-id" value="E-1042" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Full name</span>
+                  <input class="field-input" type="text" id="f-name" value="Aarav Mehta" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Email</span>
+                  <input class="field-input" type="email" id="f-email" value="aarav.mehta@company.com" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Department</span>
+                  <input class="field-input" type="text" id="f-dept" value="Data Platform" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Role</span>
+                  <input class="field-input" type="text" id="f-role" value="Senior Data Engineer" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Location</span>
+                  <input class="field-input" type="text" id="f-loc" value="Bengaluru" required>
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Start date</span>
+                  <input class="field-input" type="date" id="f-date" value="2026-04-01" required>
+                </label>
+                <button type="submit" class="primary-button full-width" id="btnRun">Execute Workflow</button>
+              </form>
+
+              <form id="meetingForm" class="workflow-form" style="display:none">
+                <label class="field-group">
+                  <span class="field-label">Meeting title</span>
+                  <input class="field-input" type="text" id="m-title" value="Q2 Planning Sync">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Participants</span>
+                  <input class="field-input" type="text" id="m-participants"
+                    value="Priya Sharma, Rohan Verma, Ananya Singh, Dev Kumar">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Transcript</span>
+                  <textarea class="field-input textarea-input" id="m-transcript" rows="12">Priya Sharma: Alright everyone, let's get started. We need to finalize the Q2 roadmap by end of this week.
 
 Rohan Verma: Sure. I think the API rate limiting issue needs to be addressed first — we're seeing failures in production. I'll take ownership of fixing that by Friday.
 
@@ -144,237 +238,313 @@ Rohan Verma: I think Kiran was supposed to handle that but he's on leave. It's n
 Priya Sharma: Okay, let's make sure all these are tracked. Dev, can you send a summary of today's meeting to the team?
 
 Dev Kumar: Will do.</textarea>
-            </div>
-            <button type="submit" class="btn-run" id="btnRunMeeting">
-              <span class="btn-icon">▶</span> Process Meeting
-            </button>
-          </form>
-        </div>
+                </label>
+                <button type="submit" class="primary-button full-width" id="btnRunMeeting">Process Meeting</button>
+              </form>
 
-        <!-- SLA Breach form -->
-        <div class="wf-form" id="form-sla_breach" style="display:none">
-          <div class="panel-header" style="margin-top:12px">SLA Breach Scenario</div>
-          <form id="slaForm" class="emp-form">
-            <div class="field-group"><label>Approval ID</label>
-              <input type="text" id="s-id" value="APR-2847"></div>
-            <div class="field-group"><label>Description</label>
-              <input type="text" id="s-desc" value="Vendor contract renewal — INR 45L spend"></div>
-            <div class="field-group"><label>Approver Name</label>
-              <input type="text" id="s-approver" value="Vikram Nair"></div>
-            <div class="field-group"><label>Approver Role</label>
-              <input type="text" id="s-approver-role" value="VP Finance"></div>
-            <div class="field-group"><label>Stuck Since (hours ago)</label>
-              <input type="number" id="s-stuck" value="52" min="1"></div>
-            <div class="field-group"><label>SLA Deadline (hours from now)</label>
-              <input type="number" id="s-deadline" value="20" min="1"></div>
-            <div class="field-group"><label>Delegate (org chart)</label>
-              <input type="text" id="s-delegate" value="Sunita Rao (CFO), Ajay Mehta (Finance Director)"></div>
-            <button type="submit" class="btn-run" id="btnRunSLA">
-              <span class="btn-icon">▶</span> Run SLA Response
-            </button>
-          </form>
-        </div>
+              <form id="slaForm" class="workflow-form" style="display:none">
+                <label class="field-group">
+                  <span class="field-label">Approval ID</span>
+                  <input class="field-input" type="text" id="s-id" value="APR-2847">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Description</span>
+                  <input class="field-input" type="text" id="s-desc" value="Vendor contract renewal — INR 45L spend">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Approver name</span>
+                  <input class="field-input" type="text" id="s-approver" value="Vikram Nair">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Approver role</span>
+                  <input class="field-input" type="text" id="s-approver-role" value="VP Finance">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Stuck since (hours)</span>
+                  <input class="field-input" type="number" id="s-stuck" value="52" min="1">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Deadline in (hours)</span>
+                  <input class="field-input" type="number" id="s-deadline" value="20" min="1">
+                </label>
+                <label class="field-group">
+                  <span class="field-label">Delegates</span>
+                  <input class="field-input" type="text" id="s-delegate"
+                    value="Sunita Rao (CFO), Ajay Mehta (Finance Director)">
+                </label>
+                <button type="submit" class="primary-button full-width" id="btnRunSLA">Run SLA Response</button>
+              </form>
+            </div>
+          </section>
 
-        <!-- Agent roster -->
-        <div class="agent-roster">
-          <div class="panel-header" style="margin-top:16px">Active Agents</div>
-          <div class="agent-list">
-            <div class="agent-item" id="ag-orchestrator">
-              <span class="agent-dot"></span><span class="agent-name">Orchestrator</span>
-              <span class="agent-state">standby</span>
+          <section class="panel-section">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Failures</p>
+                <h2>Simulation controls</h2>
+              </div>
             </div>
-            <div class="agent-item" id="ag-execution">
-              <span class="agent-dot"></span><span class="agent-name">Execution</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-failure">
-              <span class="agent-dot"></span><span class="agent-name">Failure Detection</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-strategy">
-              <span class="agent-dot"></span><span class="agent-name">Strategy</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-recovery">
-              <span class="agent-dot"></span><span class="agent-name">Recovery</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-hitl">
-              <span class="agent-dot"></span><span class="agent-name">HITL</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-evolution">
-              <span class="agent-dot"></span><span class="agent-name">Evolution</span>
-              <span class="agent-state">standby</span>
-            </div>
-            <div class="agent-item" id="ag-audit">
-              <span class="agent-dot"></span><span class="agent-name">Audit</span>
-              <span class="agent-state">standby</span>
-            </div>
-          </div>
-        </div>
-      </aside>
+            <p class="section-note" id="simHint">Adjust per-step failure probability for controlled demos.</p>
+            <div class="slider-stack" id="simSliders"></div>
+          </section>
+        </aside>
 
-      <!-- Main content -->
-      <main class="run-main">
-        <div class="pipeline-area">
-          <div class="pipeline-header">
-            <span>Workflow Pipeline</span>
-            <span class="run-id-display" id="runIdDisplay"></span>
-          </div>
-          <div class="pipeline-steps" id="pipelineSteps">
-            <div class="pipeline-empty">Select a workflow and click Execute to begin.</div>
-          </div>
-        </div>
-
-        <div class="run-bottom-grid">
-          <div class="event-log-area">
-            <div class="pipeline-header">
-              <span>Live Event Stream</span>
-              <button class="btn-clear" id="btnClearLog">Clear</button>
+        <main class="panel workspace-panel run-section run-section-live">
+          <section class="hero-card">
+            <div class="hero-content">
+              <p class="hero-kicker">Live autonomous runtime</p>
+              <p class="section-eyebrow">Autonomous Run Console</p>
+              <h2 id="workspaceTitle">Employee onboarding orchestration</h2>
+              <p id="workspaceSubtitle">Track execution intelligence in real time with animated pipeline flow, adaptive
+                retries, and escalation visibility.</p>
+              <div class="hero-proof-list">
+                <span class="hero-proof">real Slack delivery</span>
+                <span class="hero-proof">adaptive recovery loop</span>
+                <span class="hero-proof">tamper-evident audit chain</span>
+              </div>
             </div>
-            <div class="event-log" id="eventLog">
-              <div class="log-empty">Events will appear here during execution.</div>
+            <div class="hero-preview" aria-hidden="true">
+              <div class="hero-preview-bar">
+                <span class="hero-preview-dots"></span>
+                <span class="hero-preview-label">run_manifest.yaml</span>
+              </div>
+              <pre class="hero-preview-code">mode: adaptive
+slack: live-ready
+recovery: bounded
+audit_chain: verified
+state: demo-ready</pre>
+              <div class="run-meta">
+                <span class="status-chip muted" id="selectedWorkflowBadge">employee_onboarding</span>
+                <span class="status-chip muted" id="runIdDisplay">run not started</span>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <div class="reasoning-area">
-            <div class="pipeline-header">
-              <span>AI Reasoning</span>
-              <span class="reasoning-badge" id="reasoningCount">0 decisions</span>
+          <section class="content-card timeline-card pipeline-card">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">Execution</p>
+                <h3>Live workflow pipeline</h3>
+              </div>
+            </div>
+            <div class="timeline-rail" id="timelineSteps">
+              <div class="empty-state">Select a workflow and start execution.</div>
+            </div>
+          </section>
+
+          <section class="results-grid">
+            <article class="content-card">
+              <div class="card-header">
+                <div>
+                  <p class="section-eyebrow">Outcome</p>
+                  <h3>Run summary</h3>
+                </div>
+              </div>
+              <div class="summary-grid" id="resultsGrid">
+                <div class="empty-state compact">Run metrics will appear here.</div>
+              </div>
+            </article>
+
+            <article class="content-card">
+              <div class="card-header">
+                <div>
+                  <p class="section-eyebrow">Business impact</p>
+                  <h3>Projected value</h3>
+                </div>
+              </div>
+              <div class="impact-grid" id="impactGrid">
+                <div class="empty-state compact">Impact calculations will appear after a run.</div>
+              </div>
+            </article>
+          </section>
+
+          <section class="content-card audit-card">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">Integrity</p>
+                <h3>Audit viewer</h3>
+              </div>
+              <div class="audit-header-actions">
+                <button type="button" class="ghost-button compact" id="btnViewAudit">View Audit</button>
+                <span class="audit-status pending" id="auditIntegrityBadge">No audit loaded</span>
+              </div>
+            </div>
+            <div class="audit-summary" id="liveAuditSummary">
+              <div class="empty-state compact">The audit chain will appear after export.</div>
+            </div>
+            <div class="audit-list" id="liveAuditEvents"></div>
+          </section>
+        </main>
+
+        <aside class="panel intelligence-panel run-section run-section-intel">
+          <section class="panel-section compact-section">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">Metrics</p>
+                <h3>Run health</h3>
+              </div>
+            </div>
+            <section class="metrics-grid">
+              <article class="metric-card">
+                <p class="metric-label">Success rate</p>
+                <strong class="metric-value" id="metricSuccess">0%</strong>
+                <span class="metric-subtext" id="metricSuccessSub">Awaiting execution</span>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">Retries</p>
+                <strong class="metric-value" id="metricRetries">0</strong>
+                <span class="metric-subtext" id="metricRetriesSub">No recovery attempts yet</span>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">Failures</p>
+                <strong class="metric-value" id="metricFailures">0</strong>
+                <span class="metric-subtext" id="metricFailuresSub">No blocked steps</span>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">MTTR</p>
+                <strong class="metric-value" id="metricMttr">—</strong>
+                <span class="metric-subtext" id="metricMttrSub">Recovery time will populate after retries</span>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">Execution Time</p>
+                <strong class="metric-value" id="metricRuntime">—</strong>
+                <span class="metric-subtext" id="metricRuntimeSub">Total runtime appears on completion</span>
+              </article>
+            </section>
+          </section>
+
+          <section class="panel-section compact-section">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Agents</p>
+                <h2>Activity</h2>
+              </div>
+              <span class="status-chip muted" id="activeAgentLabel">Active: none</span>
+            </div>
+            <div class="agent-list">
+              <div class="agent-card" id="ag-orchestrator"><span class="agent-name">Orchestrator</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-execution"><span class="agent-name">Execution</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-failure"><span class="agent-name">Failure Detection</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-strategy"><span class="agent-name">Strategy</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-recovery"><span class="agent-name">Recovery</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-hitl"><span class="agent-name">HITL</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-evolution"><span class="agent-name">Evolution</span><span
+                  class="agent-state">standby</span></div>
+              <div class="agent-card" id="ag-audit"><span class="agent-name">Audit</span><span
+                  class="agent-state">standby</span></div>
+            </div>
+          </section>
+
+          <section class="panel-section compact-section">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">External delivery</p>
+                <h3>Integrations</h3>
+              </div>
+            </div>
+            <div class="integration-feed" id="integrationFeed">
+              <div class="empty-state compact">Live Slack and email receipts will appear here.</div>
+            </div>
+          </section>
+
+          <section class="panel-section compact-section">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">Reasoning</p>
+                <h3>Agent rationale</h3>
+              </div>
+              <span class="status-chip muted" id="reasoningCount">0 decisions</span>
             </div>
             <div class="reasoning-log" id="reasoningLog">
-              <div class="log-empty">Agent reasoning will appear here when AI is active.</div>
+              <div class="empty-state compact">Reasoning cards will appear when AI or fallback logic makes explicit
+                decisions.</div>
+            </div>
+          </section>
+
+          <section class="panel-section compact-section">
+            <div class="card-header">
+              <div>
+                <p class="section-eyebrow">Events</p>
+                <h3>Execution log</h3>
+              </div>
+              <button type="button" class="ghost-button compact" id="btnClearLog">Clear</button>
+            </div>
+            <div class="event-log" id="eventLog">
+              <div class="empty-state compact">Run events will stream here.</div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section class="view-panel" id="panel-history">
+      <div class="history-grid">
+        <section class="panel content-panel">
+          <div class="card-header">
+            <div>
+              <p class="section-eyebrow">History</p>
+              <h3>Recent workflow runs</h3>
+            </div>
+            <button type="button" class="ghost-button compact" id="btnRefreshHistory">Refresh</button>
+          </div>
+          <div class="history-list" id="historyList">
+            <div class="empty-state">No runs yet.</div>
+          </div>
+        </section>
+
+        <section class="panel content-panel">
+          <div class="card-header">
+            <div>
+              <p class="section-eyebrow">Audit trail</p>
+              <h3 id="historyAuditTitle">Select a run</h3>
+            </div>
+            <span class="audit-status pending" id="historyAuditBadge">No audit loaded</span>
+          </div>
+          <div class="audit-summary" id="historyAuditSummary">
+            <div class="empty-state compact">Select a run from the history list to inspect its audit chain.</div>
+          </div>
+          <div class="audit-list" id="historyAuditEvents"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view-panel" id="panel-learning">
+      <div class="learning-grid-layout">
+        <section class="panel content-panel">
+          <div class="card-header">
+            <div>
+              <p class="section-eyebrow">Memory</p>
+              <h3>Adaptive strategy state</h3>
+            </div>
+            <button type="button" class="ghost-button compact" id="btnRefreshLearning">Refresh</button>
+          </div>
+          <div class="learning-grid" id="learningGrid">
+            <div class="empty-state">No learning data yet.</div>
+          </div>
+        </section>
+
+        <section class="panel content-panel">
+          <div class="card-header">
+            <div>
+              <p class="section-eyebrow">Trendline</p>
+              <h3>Evolution timeline</h3>
             </div>
           </div>
-        </div>
-
-        <!-- Impact + results row -->
-        <div class="results-impact-row" id="resultsArea" style="display:none">
-          <!-- Impact card -->
-          <div class="impact-card" id="impactCard">
-            <div class="impact-header">Business Impact</div>
-            <div class="impact-grid" id="impactGrid"></div>
+          <div class="timeline-feed" id="strategyTimeline">
+            <div class="empty-state">Timeline will populate after multiple runs.</div>
           </div>
-          <!-- Run summary -->
-          <div class="results-card">
-            <div class="pipeline-header">Run Summary</div>
-            <div class="results-grid" id="resultsGrid"></div>
-          </div>
-        </div>
-      </main>
-    </div>
-  </section>
+        </section>
+      </div>
+    </section>
+  </div>
 
-  <!-- HISTORY TAB -->
-  <section class="tab-panel" id="panel-history">
-    <div class="history-layout">
-      <div class="panel-header" style="margin-bottom:16px">
-        Run History
-        <button class="btn-sm" onclick="loadHistory()">Refresh</button>
-      </div>
-      <div id="historyList" class="history-list">
-        <div class="log-empty">No runs yet. Execute a workflow first.</div>
-      </div>
-      <div id="auditDetail" class="audit-detail" style="display:none">
-        <div class="panel-header" style="margin-bottom:12px">
-          Audit Trail — <span id="auditRunId"></span>
-          <button class="btn-sm" onclick="closeAudit()">&#x2715; Close</button>
-        </div>
-        <div id="auditEvents" class="audit-events"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- METRICS TAB -->
-  <section class="tab-panel" id="panel-metrics">
-    <div class="learning-layout">
-      <div class="panel-header" style="margin-bottom:16px">
-        System Metrics
-        <button class="btn-sm" onclick="loadMetrics()">Refresh</button>
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">Aggregated across all runs</span>
-      </div>
-
-      <!-- KPI Cards Row -->
-      <div class="metrics-kpi-row" id="metricsKpiRow">
-        <div class="log-empty">No metrics yet. Run a workflow first.</div>
-      </div>
-
-      <!-- Step Reliability Grid -->
-      <div class="panel-header" style="margin-top:28px;margin-bottom:12px">
-        Step Reliability
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">per-step success rates</span>
-      </div>
-      <div id="stepReliabilityGrid" class="step-reliability-grid"></div>
-
-      <!-- Run Trend -->
-      <div class="panel-header" style="margin-top:28px;margin-bottom:12px">
-        Run Trend <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">last 10 runs</span>
-      </div>
-      <div id="runTrend" class="run-trend-row"></div>
-
-      <!-- Audit Integrity Section -->
-      <div class="panel-header" style="margin-top:28px;margin-bottom:12px">
-        Audit Chain Integrity
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">tamper-evident hash chain verification</span>
-      </div>
-      <div id="auditIntegrityGrid" class="audit-integrity-grid">
-        <div class="log-empty">Load history then click "Verify" on any run.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- BENCHMARK TAB -->
-  <section class="tab-panel" id="panel-benchmark">
-    <div class="learning-layout">
-      <div class="panel-header" style="margin-bottom:16px">
-        Static vs Adaptive Benchmark
-        <button class="btn-sm" id="btnRunBenchmark" onclick="runBenchmark()">Run 30 Simulations</button>
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">EvoFlow vs no-recovery baseline</span>
-      </div>
-
-      <!-- Improvement badges -->
-      <div class="benchmark-badges" id="benchmarkBadges">
-        <div class="log-empty">Click "Run 30 Simulations" to generate benchmark data.</div>
-      </div>
-
-      <!-- Comparison table -->
-      <div class="panel-header" style="margin-top:24px;margin-bottom:12px">Head-to-Head Comparison</div>
-      <div id="benchmarkTable" class="benchmark-table"></div>
-
-      <!-- ASCII / bar chart -->
-      <div class="panel-header" style="margin-top:24px;margin-bottom:12px">
-        Run-by-Run Success Chart
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">green = success, red = failure</span>
-      </div>
-      <div id="benchmarkChart" class="benchmark-chart-area"></div>
-
-      <!-- Verdict -->
-      <div id="benchmarkVerdict" class="benchmark-verdict" style="display:none"></div>
-    </div>
-  </section>
-
-  <!-- EVOLUTION TAB -->
-  <section class="tab-panel" id="panel-learning">
-    <div class="learning-layout">
-      <div class="panel-header" style="margin-bottom:16px">
-        Evolution State
-        <button class="btn-sm" onclick="loadLearning()">Refresh</button>
-      </div>
-      <div class="learning-grid" id="learningGrid">
-        <div class="log-empty">No evolution data yet. Run a workflow first.</div>
-      </div>
-      <div class="panel-header" style="margin-top:32px;margin-bottom:16px">
-        Strategy Evolution Timeline
-        <span style="color:var(--text-dim);font-size:11px;font-weight:400;margin-left:8px">AI reasoning across runs</span>
-      </div>
-      <div id="strategyTimeline" class="strategy-timeline">
-        <div class="log-empty">Timeline will populate after multiple runs.</div>
-      </div>
-    </div>
-  </section>
-</div>
-
-<script src="app.js"></script>
+  <script src="app.js?v=20260329final12"></script>
 </body>
+
 </html>

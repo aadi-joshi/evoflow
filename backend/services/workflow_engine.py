@@ -9,13 +9,15 @@ Routes to three workflow types:
 All workflows share:
   - Common step execution loop with failure detection + recovery
   - Human-in-the-loop (HITL) pause for ambiguous situations
-  - Audit logging with full LLM traces
+  - Audit logging with hash-chained integrity
   - SSE event streaming
   - Impact quantification
   - Strategy evolution
+  - Step-level checkpointing for crash recovery
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -28,7 +30,9 @@ from backend.agents.hitl_agent import HITLAgent
 from backend.agents.orchestrator_agent import OrchestratorAgent
 from backend.agents.recovery_agent import RecoveryAgent
 from backend.agents.strategy_agent import StrategyAgent
-from backend.services.checkpoint_store import CheckpointStore
+from backend.services.checkpoint import CheckpointManager
+from backend.services.notification_service import NotificationService
+from backend.services.slack_service import SlackService
 from backend.utils.constants import (
     DEFAULT_RECOVERY_POLICY,
     IMPACT_MODEL,
@@ -42,20 +46,27 @@ class WorkflowEngine:
         self,
         data_dir: Path,
         simulation_config: Optional[Dict[str, Any]] = None,
+        integration_mode: str = "simulation",
     ) -> None:
         self.data_dir = data_dir
         self.simulation_config = simulation_config  # per-step overrides from UI
+        self.integration_mode = integration_mode
         self.orchestrator     = OrchestratorAgent()
-        self.executor         = ExecutionAgents()
+        self.notification_service = NotificationService()
+        self.slack_service = SlackService()
+        self.executor         = ExecutionAgents(
+            notification_service=self.notification_service,
+            integration_mode=integration_mode,
+        )
         self.failure_detector = FailureDetectionAgent()
         self.strategy_agent   = StrategyAgent()
         self.recovery_agent   = RecoveryAgent()
         self.hitl_agent       = HITLAgent()
         self.audit_agent      = AuditAgent()
+        self.checkpoint_mgr   = CheckpointManager(data_dir)
         self.evolution_agent  = EvolutionAgent(
             memory_path=data_dir / "learning_state.json"
         )
-        self.checkpoint_store = CheckpointStore(data_dir)
 
     # ── Public entry point ───────────────────────────────────────────────────
 
@@ -92,15 +103,17 @@ class WorkflowEngine:
         input_data: Dict[str, Any],
         event_callback: Optional[Callable],
     ) -> Dict[str, Any]:
+        run_start_time = time.monotonic()
+        step_timings: Dict[str, float] = {}
+        failure_timestamps: Dict[str, float] = {}  # step -> first failure time
+        recovery_timestamps: Dict[str, float] = {}  # step -> recovery time
+
         def emit(event_type: str, data: Dict[str, Any]) -> None:
             if event_callback:
                 event_callback(event_type, data)
 
         state = WorkflowState(workflow_type=workflow_type, input_data=input_data)
         evolved_strategy = self.evolution_agent.current_strategy()
-
-        # Initialise (or reload) checkpoint for this run
-        self.checkpoint_store.init(state.run_id, workflow_type, input_data)
 
         # ── Plan creation ─────────────────────────────────────────────────────
         plan, plan_audit = self.orchestrator.create_plan_with_audit(
@@ -119,6 +132,7 @@ class WorkflowEngine:
             "plan":           state.plan,
             "input_data":     input_data,
             "ai_generated":   plan_audit.get("ai_generated", False),
+            "integration_mode": self.integration_mode,
         })
 
         if plan_audit.get("ai_generated"):
@@ -133,20 +147,11 @@ class WorkflowEngine:
 
         # ── Step execution loop ───────────────────────────────────────────────
         failure_analyses: Dict[str, Any] = {}
+        checkpoint_count = 0
 
-        for step in state.plan:
+        for step_idx, step in enumerate(state.plan):
             step_name = step["step_name"]
-
-            # ── Checkpoint resume: skip already-completed steps ───────────────
-            if self.checkpoint_store.is_done(state.run_id, step_name):
-                cached = self.checkpoint_store.get_result(state.run_id, step_name)
-                if cached:
-                    state.results.append(cached)
-                    self._accumulate_context(workflow_type, step_name, cached, state)
-                emit("step_started",  {"step_name": step_name, "attempt": 1, "resumed": True})
-                emit("step_success",  {"step_name": step_name, "status": "success", "resumed": True})
-                continue
-
+            step_start = time.monotonic()
             emit("step_started", {"step_name": step_name, "attempt": 1})
 
             # Build step-specific context from accumulated state
@@ -159,10 +164,10 @@ class WorkflowEngine:
                 state.run_id, self.executor.name, "step_executed", step_result.to_dict()
             )
             emit("step_executed", step_result.to_dict())
+            self._emit_step_delivery_receipt(state, step_result, emit)
 
-            # Checkpoint successful steps immediately
+            # Accumulate successful step outputs into context
             if step_result.status == "success":
-                self.checkpoint_store.save_step(state.run_id, step_name, step_result, attempt=1)
                 self._accumulate_context(workflow_type, step_name, step_result, state)
 
             # Failure detection
@@ -193,14 +198,37 @@ class WorkflowEngine:
 
             # Happy path
             if not diagnosis["is_failure"]:
+                step_timings[step_name] = time.monotonic() - step_start
+                # ── Checkpoint ────────────────────────────────────────────
+                completed = [s["step_name"] for s in state.plan[:step_idx + 1]]
+                self.checkpoint_mgr.save(
+                    state.run_id, step_idx, step_name,
+                    {"status": state.status, "results_count": len(state.results)},
+                    completed,
+                )
+                checkpoint_count += 1
                 emit("step_success", {"step_name": step_name, "status": "success"})
                 continue
+
+            # Track first failure time for MTTR
+            if step_name not in failure_timestamps:
+                failure_timestamps[step_name] = time.monotonic()
 
             emit("step_failed", {
                 "step_name":  step_name,
                 "error_code": step_result.error_code,
                 "diagnosis":  diagnosis,
             })
+            if diagnosis.get("severity") in {"high", "critical"}:
+                receipt = self.slack_service.send_critical_failure(
+                    workflow_type=workflow_type,
+                    step_name=step_name,
+                    reason=diagnosis.get("reasoning") or step_result.message,
+                    run_id=state.run_id,
+                    severity=diagnosis.get("severity", "high"),
+                    integration_mode=self.integration_mode,
+                )
+                self._record_integration_receipt(state, receipt, emit)
 
             # ── HITL: clarification needed ────────────────────────────────────
             if diagnosis.get("recommended_action") == "clarify":
@@ -233,6 +261,7 @@ class WorkflowEngine:
                     state.run_id, self.recovery_agent.name, "escalation_created", escalation
                 )
                 emit("escalation_created", escalation)
+                self._notify_escalation(workflow_type, state, step_name, escalation, emit)
                 continue
 
             # ── Generate adaptive strategy ────────────────────────────────────
@@ -274,11 +303,9 @@ class WorkflowEngine:
                 emit("step_executed", result.to_dict())
                 return result
 
-            # Inject run_id so recovery agent can reference it in escalation alerts
-            input_data_with_run_id = {**input_data, "_run_id": state.run_id}
             recovery = self.recovery_agent.recover(
                 step_name,
-                input_data_with_run_id,
+                input_data,
                 base_policy,
                 execute_fn=_execute_with_event,
                 strategy=generated_strategy,
@@ -309,6 +336,9 @@ class WorkflowEngine:
 
             state.results.extend(recovery.get("retry_results", []))
 
+            if recovery["recovered"]:
+                recovery_timestamps[step_name] = time.monotonic()
+
             if recovery.get("escalation"):
                 esc = recovery["escalation"]
                 state.escalations.append(esc)
@@ -316,25 +346,28 @@ class WorkflowEngine:
                     state.run_id, self.recovery_agent.name, "escalation_created", esc
                 )
                 emit("escalation_created", esc)
+                self._notify_escalation(workflow_type, state, step_name, esc, emit)
 
-            # Checkpoint if recovery succeeded
-            if recovery.get("recovered"):
-                successful_retries = [
-                    r for r in recovery.get("retry_results", [])
-                    if r.status == "success"
-                ]
-                if successful_retries:
-                    self.checkpoint_store.save_step(
-                        state.run_id, step_name, successful_retries[-1],
-                        attempt=successful_retries[-1].attempts,
-                    )
+            # ── Checkpoint after recovery ─────────────────────────────────
+            step_timings[step_name] = time.monotonic() - step_start
+            completed = [s["step_name"] for s in state.plan[:step_idx + 1]]
+            self.checkpoint_mgr.save(
+                state.run_id, step_idx, step_name,
+                {"status": state.status, "results_count": len(state.results)},
+                completed,
+            )
+            checkpoint_count += 1
 
         # ── Finalise ──────────────────────────────────────────────────────────
+        total_execution_time = time.monotonic() - run_start_time
         state.finished_at = datetime.now(timezone.utc).isoformat()
         state.status = (
             "completed_with_escalation" if state.escalations else "completed"
         )
-        state.metrics = self._compute_metrics(state)
+        state.metrics = self._compute_metrics(
+            state, total_execution_time, step_timings,
+            failure_timestamps, recovery_timestamps, checkpoint_count,
+        )
         state.impact   = self._compute_impact(workflow_type, state)
 
         self.audit_agent.log(
@@ -342,10 +375,19 @@ class WorkflowEngine:
             {"metrics": state.metrics, "impact": state.impact},
         )
         emit("run_completed", {
+            "run_id":   state.run_id,
             "status":  state.status,
             "metrics": state.metrics,
             "impact":  state.impact,
         })
+        completion_receipt = self.slack_service.send_run_completion(
+            workflow_type=workflow_type,
+            run_id=state.run_id,
+            status=state.status,
+            metrics=state.metrics,
+            integration_mode=self.integration_mode,
+        )
+        self._record_integration_receipt(state, completion_receipt, emit)
 
         # ── Evolution ─────────────────────────────────────────────────────────
         evolution_summary = self.evolution_agent.evolve({
@@ -370,16 +412,30 @@ class WorkflowEngine:
 
         # ── Audit export ──────────────────────────────────────────────────────
         self.audit_agent.export(self.data_dir / f"audit_{state.run_id}.json")
-        emit("audit_exported", {"audit_file": f"audit_{state.run_id}.json"})
+        emit("audit_exported", {
+            "run_id": state.run_id,
+            "audit_file": f"audit_{state.run_id}.json",
+            "chain_verified": self.audit_agent.verify_chain(),
+        })
 
-        # Clean up checkpoint on successful completion
-        if state.status in ("completed", "completed_with_escalation"):
-            self.checkpoint_store.cleanup(state.run_id)
+        # ── Cleanup checkpoint (successful completion) ────────────────────────
+        self.checkpoint_mgr.cleanup(state.run_id)
 
         return {
             "run":       state.to_dict(),
             "evolution": evolution_summary,
         }
+
+    def _emit_step_delivery_receipt(
+        self,
+        state: WorkflowState,
+        step_result: StepResult,
+        emit: Callable[[str, Dict[str, Any]], None],
+    ) -> None:
+        receipt = step_result.payload.get("delivery_receipt")
+        if not receipt:
+            return
+        self._record_integration_receipt(state, receipt, emit)
 
     # ── HITL ─────────────────────────────────────────────────────────────────
 
@@ -481,6 +537,48 @@ class WorkflowEngine:
             attempt=attempt,
         )
 
+    def _notify_escalation(
+        self,
+        workflow_type: str,
+        state: WorkflowState,
+        step_name: str,
+        escalation: Dict[str, Any],
+        emit: Callable[[str, Dict[str, Any]], None],
+    ) -> None:
+        slack_receipt = self.slack_service.send_escalation_alert(
+            workflow_type=workflow_type,
+            step_name=step_name,
+            reason=escalation.get("reason", ""),
+            run_id=state.run_id,
+            severity=escalation.get("severity", "high"),
+            integration_mode=self.integration_mode,
+        )
+        self._record_integration_receipt(state, slack_receipt, emit)
+
+        email_target = escalation.get("target")
+        if email_target and "@" in email_target:
+            email_receipt = self.notification_service.send_escalation_notice(
+                target=email_target,
+                step_name=step_name,
+                reason=escalation.get("reason", ""),
+                run_id=state.run_id,
+                workflow_name=workflow_type,
+                severity=escalation.get("severity", "high"),
+                integration_mode=self.integration_mode,
+            )
+            self._record_integration_receipt(state, email_receipt, emit)
+
+    def _record_integration_receipt(
+        self,
+        state: WorkflowState,
+        receipt: Dict[str, Any],
+        emit: Callable[[str, Dict[str, Any]], None],
+    ) -> None:
+        state.integration_receipts.append(receipt)
+        actor = f"{receipt.get('provider', 'integration')}_service"
+        self.audit_agent.log(state.run_id, actor, "integration_delivery", receipt)
+        emit("integration_delivery", receipt)
+
     # ── Impact quantification ─────────────────────────────────────────────────
 
     @staticmethod
@@ -560,16 +658,46 @@ class WorkflowEngine:
     # ── Metrics ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _compute_metrics(state: WorkflowState) -> Dict[str, Any]:
+    def _compute_metrics(
+        state: WorkflowState,
+        total_execution_time: float = 0.0,
+        step_timings: Optional[Dict[str, float]] = None,
+        failure_timestamps: Optional[Dict[str, float]] = None,
+        recovery_timestamps: Optional[Dict[str, float]] = None,
+        checkpoint_count: int = 0,
+    ) -> Dict[str, Any]:
         latest_status: Dict[str, str] = {}
         for result in state.results:
             latest_status[result.step_name] = result.status
+
+        total_events = len(state.results)
+        failed_events = sum(1 for r in state.results if r.status == "failed")
+        success_events = sum(1 for r in state.results if r.status == "success")
+
+        # Compute MTTR — Mean Time To Recovery
+        mttr_values: List[float] = []
+        if failure_timestamps and recovery_timestamps:
+            for step, fail_time in failure_timestamps.items():
+                if step in recovery_timestamps:
+                    mttr_values.append(recovery_timestamps[step] - fail_time)
+        mttr = round(sum(mttr_values) / len(mttr_values), 3) if mttr_values else None
+
         return {
-            "total_step_events":  len(state.results),
-            "distinct_steps":     len(state.plan),
-            "failed_events":      sum(1 for r in state.results if r.status == "failed"),
-            "escalation_count":   len(state.escalations),
-            "latest_step_status": latest_status,
+            "total_step_events":         total_events,
+            "distinct_steps":            len(state.plan),
+            "failed_events":             failed_events,
+            "success_events":            success_events,
+            "escalation_count":          len(state.escalations),
+            "success_rate":              round(success_events / max(total_events, 1), 3),
+            "failure_rate":              round(failed_events / max(total_events, 1), 3),
+            "retry_rate":                round(
+                max(total_events - len(state.plan), 0) / max(len(state.plan), 1), 3
+            ),
+            "mttr_seconds":              mttr,
+            "total_execution_time_secs": round(total_execution_time, 3),
+            "step_execution_times":      {k: round(v, 3) for k, v in (step_timings or {}).items()},
+            "checkpoint_count":          checkpoint_count,
+            "latest_step_status":        latest_status,
         }
 
     # ── Escalation helper ─────────────────────────────────────────────────────

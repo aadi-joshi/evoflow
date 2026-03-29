@@ -16,17 +16,22 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from backend.services.integrations import (
-    notify_slack_onboarding,
-    send_welcome_email_real,
-)
 from backend.services.llm_service import generate_response
+from backend.services.notification_service import NotificationService
 from backend.utils.constants import DEFAULT_SIMULATION_CONFIG
 from backend.utils.models import StepResult
 
 
 class ExecutionAgents:
     name = "execution_agents"
+
+    def __init__(
+        self,
+        notification_service: Optional[NotificationService] = None,
+        integration_mode: str = "simulation",
+    ) -> None:
+        self.notification_service = notification_service or NotificationService()
+        self.integration_mode = integration_mode
 
     def execute_step(
         self,
@@ -49,9 +54,10 @@ class ExecutionAgents:
 
         # ── Probabilistic failure simulation ──────────────────────────────────
         failure_prob = cfg.get("failure_probability", 0.05)
-        # Use seed from simulation_config for deterministic/reproducible runs
-        seed = cfg.get("seed", None)
-        rng = random.Random(seed)
+        seed = None
+        if simulation_config:
+            seed = simulation_config.get("seed") or simulation_config.get(step_name, {}).get("seed")
+        rng = random.Random(seed)  # seeded for demo reproducibility, unseeded otherwise
         if rng.random() < failure_prob:
             modes = cfg.get("failure_modes", ["UNKNOWN_ERROR"])
             error_code = rng.choice(modes)
@@ -83,7 +89,13 @@ class ExecutionAgents:
             return self._execute_llm_step(step_name, input_data, context, attempt, start_ts)
 
         # ── System integration steps (onboarding) ─────────────────────────────
-        return self._execute_integration_step(step_name, input_data, attempt, start_ts)
+        return self._execute_integration_step(
+            step_name=step_name,
+            employee=input_data,
+            context=context,
+            attempt=attempt,
+            start_ts=start_ts,
+        )
 
     # ─── LLM-native execution ─────────────────────────────────────────────────
 
@@ -434,65 +446,45 @@ class ExecutionAgents:
         self,
         step_name: str,
         employee: Dict[str, Any],
+        context: Dict[str, Any],
         attempt: int,
         start_ts: str,
     ) -> StepResult:
-        name  = employee.get("full_name", "Unknown")
-        eid   = employee.get("employee_id", "?")
-        email = employee.get("email", "")
-        dept  = employee.get("department", "")
-        start = employee.get("start_date", "")
-
-        integration_meta: Dict[str, Any] = {}
-
-        # Real API calls for applicable steps
-        if step_name == "send_welcome_email":
-            result = send_welcome_email_real(email, name, dept, start)
-            integration_meta = {
-                "integration":       "smtp",
-                "real_call":         True,
-                "provider_success":  result.success,
-                "latency_ms":        result.latency_ms,
-                "response_metadata": result.response_metadata,
-            }
-            if not result.success:
-                end_ts = datetime.now(timezone.utc).isoformat()
-                return StepResult(
-                    step_id=f"{step_name}:{attempt}",
-                    step_name=step_name,
-                    status="failed",
-                    message=f"Email delivery failed: {result.error_detail}",
-                    attempts=attempt,
-                    error_code=result.error_code or "EMAIL_DELIVERY_FAILED",
-                    payload={"system": "notification", **integration_meta},
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                )
-
-        elif step_name == "create_slack_account":
-            result = notify_slack_onboarding(name, dept)
-            integration_meta = {
-                "integration":       "slack",
-                "real_call":         True,
-                "provider_success":  result.success,
-                "latency_ms":        result.latency_ms,
-                "response_metadata": result.response_metadata,
-            }
-            if not result.success:
-                end_ts = datetime.now(timezone.utc).isoformat()
-                return StepResult(
-                    step_id=f"{step_name}:{attempt}",
-                    step_name=step_name,
-                    status="failed",
-                    message=f"Slack notification failed: {result.error_detail}",
-                    attempts=attempt,
-                    error_code=result.error_code or "SLACK_INVITE_FAILED",
-                    payload={"system": "slack", **integration_meta},
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                )
-
         end_ts = datetime.now(timezone.utc).isoformat()
+        name = employee.get("full_name", "Unknown")
+        eid  = employee.get("employee_id", "?")
+
+        if step_name == "send_welcome_email":
+            receipt = self.notification_service.send_welcome_email(
+                employee_email=employee.get("email", ""),
+                employee_name=name,
+                department=employee.get("department", "Team"),
+                integration_mode=self.integration_mode,
+            )
+            status = "failed" if receipt.get("delivery") == "failed" else "success"
+            message = (
+                f"welcome email {receipt.get('delivery', 'simulated')} for {name}"
+                if status == "success"
+                else f"welcome email failed for {name}"
+            )
+            return StepResult(
+                step_id=f"{step_name}:{attempt}",
+                step_name=step_name,
+                status=status,
+                message=message,
+                attempts=attempt,
+                error_code="EMAIL_DELIVERY_FAILED" if status == "failed" else None,
+                payload={
+                    "system": self._map_system(step_name),
+                    "resource_ref": f"{step_name}:{eid}",
+                    "attempt": attempt,
+                    "delivery_receipt": receipt,
+                    "integration_mode": self.integration_mode,
+                },
+                start_ts=start_ts,
+                end_ts=end_ts,
+            )
+
         return StepResult(
             step_id=f"{step_name}:{attempt}",
             step_name=step_name,
@@ -504,7 +496,8 @@ class ExecutionAgents:
                 "system":       self._map_system(step_name),
                 "resource_ref": f"{step_name}:{eid}",
                 "attempt":      attempt,
-                **integration_meta,
+                "integration_mode": self.integration_mode,
+                "step_context": context or {},
             },
             start_ts=start_ts,
             end_ts=end_ts,

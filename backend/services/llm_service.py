@@ -16,13 +16,11 @@ import os
 import time
 from typing import Any, Dict, Literal, Optional, Tuple
 
+from backend.utils.env import load_env
+
 logger = logging.getLogger(__name__)
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+load_env()
 
 
 # ─── Lazy client factory ─────────────────────────────────────────────────────

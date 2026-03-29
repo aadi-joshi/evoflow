@@ -130,7 +130,9 @@ class TestFullWorkflow:
     def test_audit_file_has_llm_trace(self, tmp_data_dir):
         result, _ = run_workflow(tmp_data_dir)
         run_id = result["run"]["run_id"]
-        events = json.loads((tmp_data_dir / f"audit_{run_id}.json").read_text())
+        raw = json.loads((tmp_data_dir / f"audit_{run_id}.json").read_text())
+        # Support new hash-chained format (events under "events" key)
+        events = raw.get("events", raw) if isinstance(raw, dict) else raw
         traces = [e for e in events if "llm_trace" in e]
         assert len(traces) >= 1
         for t in traces:
@@ -179,11 +181,17 @@ class TestFullWorkflow:
             "plan_created", "step_started", "step_executed",
             "step_success", "step_failed", "step_retry",
             "recovery_attempted", "escalation_created",
-            "strategy_generated", "run_completed",
+            "strategy_generated", "run_completed", "integration_delivery",
             "strategy_evolved", "audit_exported",
         }
         missing = required - emitted
         assert not missing, f"Missing SSE events: {missing}"
+
+    def test_integration_receipts_in_run_payload(self, tmp_data_dir):
+        result, events = run_workflow(tmp_data_dir)
+        receipts = result["run"].get("integration_receipts", [])
+        assert receipts, "Expected integration receipts in run payload"
+        assert any(receipt.get("provider") == "slack" for receipt in receipts)
 
     def test_impact_computed(self, tmp_data_dir):
         result, _ = run_workflow(tmp_data_dir)

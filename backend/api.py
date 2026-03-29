@@ -6,19 +6,20 @@ import threading
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.agents.hitl_agent import provide_answer
-from backend.services.metrics_engine import MetricsEngine
 from backend.services.workflow_engine import WorkflowEngine
-from backend.utils.rbac import Role, require_role
+from backend.utils.env import load_env
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+
+load_env()
 
 app = FastAPI(title="EvoFlow AI")
 
@@ -42,6 +43,7 @@ class OnboardingPayload(BaseModel):
     location:      str
     start_date:    str
     simulation_config: Optional[Dict[str, Any]] = None
+    integration_mode: str = "simulation"
 
 
 class MeetingActionPayload(BaseModel):
@@ -50,6 +52,7 @@ class MeetingActionPayload(BaseModel):
     participants:  list = []
     meeting_title: str = "Meeting"
     simulation_config: Optional[Dict[str, Any]] = None
+    integration_mode: str = "simulation"
 
 
 class SLABreachPayload(BaseModel):
@@ -57,12 +60,14 @@ class SLABreachPayload(BaseModel):
     approval:      Dict[str, Any]
     org_chart:     Dict[str, Any] = {}
     simulation_config: Optional[Dict[str, Any]] = None
+    integration_mode: str = "simulation"
 
 
 class GenericWorkflowPayload(BaseModel):
     workflow_type:     str
     input_data:        Dict[str, Any]
     simulation_config: Optional[Dict[str, Any]] = None
+    integration_mode: str = "simulation"
 
 
 class ClarifyPayload(BaseModel):
@@ -75,6 +80,7 @@ def _run_engine_stream(
     workflow_type: str,
     input_data: Dict[str, Any],
     simulation_config: Optional[Dict[str, Any]],
+    integration_mode: str = "simulation",
 ) -> StreamingResponse:
     loop = asyncio.get_running_loop()
     sync_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
@@ -87,7 +93,11 @@ def _run_engine_stream(
         future.result(timeout=60)
 
     def worker() -> None:
-        engine = WorkflowEngine(data_dir=DATA_DIR, simulation_config=simulation_config)
+        engine = WorkflowEngine(
+            data_dir=DATA_DIR,
+            simulation_config=simulation_config,
+            integration_mode=integration_mode,
+        )
         try:
             result = engine.run(workflow_type, input_data, event_callback=callback)
             asyncio.run_coroutine_threadsafe(
@@ -135,7 +145,12 @@ async def run_onboarding(payload: OnboardingPayload) -> StreamingResponse:
         "location":    payload.location,
         "start_date":  payload.start_date,
     }
-    return _run_engine_stream("employee_onboarding", input_data, payload.simulation_config)
+    return _run_engine_stream(
+        "employee_onboarding",
+        input_data,
+        payload.simulation_config,
+        payload.integration_mode,
+    )
 
 
 @app.post("/api/run/meeting")
@@ -146,7 +161,12 @@ async def run_meeting(payload: MeetingActionPayload) -> StreamingResponse:
         "participants":  payload.participants,
         "meeting_title": payload.meeting_title,
     }
-    return _run_engine_stream("meeting_action", input_data, payload.simulation_config)
+    return _run_engine_stream(
+        "meeting_action",
+        input_data,
+        payload.simulation_config,
+        payload.integration_mode,
+    )
 
 
 @app.post("/api/run/sla")
@@ -156,36 +176,23 @@ async def run_sla(payload: SLABreachPayload) -> StreamingResponse:
         "approval":  payload.approval,
         "org_chart": payload.org_chart,
     }
-    return _run_engine_stream("sla_breach", input_data, payload.simulation_config)
+    return _run_engine_stream(
+        "sla_breach",
+        input_data,
+        payload.simulation_config,
+        payload.integration_mode,
+    )
 
 
 @app.post("/api/run/workflow")
 async def run_workflow(payload: GenericWorkflowPayload) -> StreamingResponse:
     """Generic workflow runner — accepts any workflow_type."""
     return _run_engine_stream(
-        payload.workflow_type, payload.input_data, payload.simulation_config
+        payload.workflow_type,
+        payload.input_data,
+        payload.simulation_config,
+        payload.integration_mode,
     )
-
-
-# ── Resume endpoint ───────────────────────────────────────────────────────────
-
-@app.post("/api/resume/{run_id}")
-async def resume_workflow(run_id: str) -> StreamingResponse:
-    """
-    Resume a previously interrupted workflow from its last checkpoint.
-    Only works if a checkpoint file exists for run_id.
-    """
-    from backend.services.checkpoint_store import CheckpointStore
-    store = CheckpointStore(DATA_DIR)
-    checkpoint = store.load(run_id)
-    if not checkpoint:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No checkpoint found for run_id={run_id}. Cannot resume.",
-        )
-    workflow_type = checkpoint.get("workflow_type", "employee_onboarding")
-    input_data    = checkpoint.get("input_data", {})
-    return _run_engine_stream(workflow_type, input_data, simulation_config=None)
 
 
 # ── HITL endpoint ─────────────────────────────────────────────────────────────
@@ -214,7 +221,14 @@ def get_history() -> Dict[str, Any]:
     runs = []
     for f in audit_files[:20]:
         try:
-            events = json.loads(f.read_text(encoding="utf-8"))
+            raw = json.loads(f.read_text(encoding="utf-8"))
+            # Support both old (list) and new (dict with events key) format
+            if isinstance(raw, dict):
+                events = raw.get("events", [])
+                integrity = raw.get("integrity", {})
+            else:
+                events = raw
+                integrity = {}
             run_event     = next((e for e in events if e.get("action") == "run_completed"),    None)
             evolved_event = next((e for e in events if e.get("action") == "strategy_evolved"), None)
             plan_event    = next((e for e in events if e.get("action") == "plan_created"),     None)
@@ -230,6 +244,7 @@ def get_history() -> Dict[str, Any]:
                 "input_data":    plan_event["payload"].get("input_data", plan_event["payload"].get("employee", {})) if plan_event else {},
                 "audit_file":    f.name,
                 "ai_decisions":  len(ai_events),
+                "integrity":     integrity,
             })
         except Exception:
             continue
@@ -248,7 +263,11 @@ def get_audit(run_id: str) -> Any:
     audit_file = DATA_DIR / f"audit_{run_id}.json"
     if not audit_file.exists():
         return {"error": "not found"}
-    return json.loads(audit_file.read_text(encoding="utf-8"))
+    raw = json.loads(audit_file.read_text(encoding="utf-8"))
+    # Support both old (list) and new (dict with events + integrity) format
+    if isinstance(raw, list):
+        return {"events": raw, "integrity": {}}
+    return raw
 
 
 @app.get("/api/strategy-history")
@@ -266,48 +285,26 @@ def get_strategy_history() -> Dict[str, Any]:
 @app.get("/api/status")
 def get_status() -> Dict[str, Any]:
     from backend.services.llm_service import is_ai_available
+    from backend.services.notification_service import NotificationService
+    from backend.services.slack_service import SlackService
+    from backend.utils.constants import DEMO_SCENARIOS
+    slack = SlackService()
+    email = NotificationService()
     return {
         "status":       "ok",
         "ai_available": is_ai_available(),
         "workflows":    ["employee_onboarding", "meeting_action", "sla_breach"],
+        "demo_scenarios": {k: v["label"] for k, v in DEMO_SCENARIOS.items()},
+        "integrations": {
+            "slack_configured": slack.is_configured(),
+            "email_configured": email.is_configured(),
+            "default_mode": "simulation",
+        },
     }
 
 
-@app.get("/api/metrics")
-def get_metrics(limit: int = 50) -> Dict[str, Any]:
-    """Aggregate performance metrics: success rate, MTTR, retry counts, step reliability."""
-    engine = MetricsEngine(DATA_DIR)
-    return engine.aggregate(limit=min(limit, 200))
-
-
-@app.get("/api/audit/{run_id}/verify")
-def verify_audit_chain(run_id: str) -> Dict[str, Any]:
-    """Verify hash-chain integrity of an audit log — tamper detection."""
-    engine = MetricsEngine(DATA_DIR)
-    return engine.verify_audit(run_id)
-
-
-@app.get("/api/benchmark")
-def get_benchmark() -> Dict[str, Any]:
-    """Return pre-computed benchmark: static vs adaptive comparison."""
-    from backend.services.benchmark_engine import BenchmarkEngine
-    engine = BenchmarkEngine(DATA_DIR)
-    return engine.get_or_compute()
-
-
-@app.post("/api/benchmark/run")
-def run_benchmark(
-    n: int = 30,
-    _role=Depends(require_role(Role.operator)),
-) -> Dict[str, Any]:
-    """Trigger a fresh benchmark simulation (n runs each for static and adaptive). Requires operator role."""
-    from backend.services.benchmark_engine import BenchmarkEngine
-    engine = BenchmarkEngine(DATA_DIR)
-    return engine.run(n_runs=min(n, 50))
-
-
 @app.post("/api/reset")
-def reset_state(_role=Depends(require_role(Role.admin))) -> Dict[str, Any]:
+def reset_state() -> Dict[str, Any]:
     learning_path = DATA_DIR / "learning_state.json"
     deleted = []
     if learning_path.exists():
@@ -316,7 +313,75 @@ def reset_state(_role=Depends(require_role(Role.admin))) -> Dict[str, Any]:
     for audit_file in DATA_DIR.glob("audit_*.json"):
         audit_file.unlink()
         deleted.append(audit_file.name)
+    # Also clean up checkpoints
+    cp_dir = DATA_DIR / "checkpoints"
+    if cp_dir.exists():
+        for cp_file in cp_dir.glob("checkpoint_*.json"):
+            cp_file.unlink()
+            deleted.append(cp_file.name)
     return {"reset": True, "deleted": deleted}
+
+
+# ── Benchmark endpoint ────────────────────────────────────────────────────────
+
+class BenchmarkPayload(BaseModel):
+    num_runs: int = 5
+
+
+@app.post("/api/benchmark")
+def run_benchmark_endpoint(payload: BenchmarkPayload) -> Dict[str, Any]:
+    """Run baseline vs adaptive benchmark comparison."""
+    from backend.services.benchmark import run_benchmark
+    return run_benchmark(num_runs=min(payload.num_runs, 20))
+
+
+# ── Demo scenarios ────────────────────────────────────────────────────────────
+
+@app.get("/api/scenarios")
+def list_scenarios() -> Dict[str, Any]:
+    from backend.utils.constants import DEMO_SCENARIOS
+    return {
+        "scenarios": {
+            k: {"label": v["label"], "seed": v.get("seed")}
+            for k, v in DEMO_SCENARIOS.items()
+        }
+    }
+
+
+@app.post("/api/run/scenario/{scenario_name}")
+async def run_scenario(
+    scenario_name: str,
+    integration_mode: str = Query(default="simulation"),
+) -> StreamingResponse:
+    """Run a preset demo scenario with deterministic failures."""
+    from backend.utils.constants import DEMO_SCENARIOS
+    scenario = DEMO_SCENARIOS.get(scenario_name)
+    if not scenario:
+        raise HTTPException(status_code=404, detail=f"Unknown scenario: {scenario_name}")
+
+    sim_config = dict(scenario["config"])
+    if scenario.get("seed"):
+        sim_config["seed"] = scenario["seed"]
+
+    input_data = {
+        "employee_id": "E-DEMO",
+        "full_name":   "Demo Employee",
+        "email":       "demo@company.com",
+        "department":  "Engineering",
+        "role":        "Senior Engineer",
+        "location":    "Bengaluru",
+        "start_date":  "2026-04-01",
+    }
+    return _run_engine_stream("employee_onboarding", input_data, sim_config, integration_mode)
+
+
+# ── Checkpoint status ─────────────────────────────────────────────────────────
+
+@app.get("/api/checkpoints")
+def list_checkpoints() -> Dict[str, Any]:
+    from backend.services.checkpoint import CheckpointManager
+    mgr = CheckpointManager(DATA_DIR)
+    return {"active_checkpoints": mgr.list_active()}
 
 
 # Serve frontend — mount last so API routes take priority

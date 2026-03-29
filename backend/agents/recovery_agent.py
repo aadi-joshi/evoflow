@@ -11,7 +11,6 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from backend.services.integrations import send_escalation_alert
 from backend.utils.models import StepResult
 
 
@@ -112,23 +111,11 @@ class RecoveryAgent:
         if root_cause:
             escalation_reason += f" Root cause: {root_cause}"
 
-        severity = failure_analysis.get("severity", "high") if failure_analysis else "high"
-        run_id_hint = employee.get("_run_id", "unknown")
-
-        # Fire real escalation alert (Slack + Email)
-        alert_result = send_escalation_alert(
-            escalation_target=escalation_target,
-            step_name=step_name,
-            error_code=(retries[-1].error_code if retries else "UNKNOWN"),
-            run_id=run_id_hint,
-            severity=severity,
-        )
-
         escalation = {
             "type": "manual_intervention",
             "target": escalation_target,
             "reason": escalation_reason,
-            "severity": severity,
+            "severity": failure_analysis.get("severity", "high") if failure_analysis else "high",
             "status": "open",
             "recommended_action": (
                 failure_analysis.get("recommended_action", "escalate")
@@ -137,8 +124,6 @@ class RecoveryAgent:
             "fallback_options": fallbacks,
             "strategy_name": strategy_name,
             "ai_reasoning": root_cause,
-            "alert_sent": alert_result.success,
-            "alert_metadata": alert_result.response_metadata,
         }
 
         return {

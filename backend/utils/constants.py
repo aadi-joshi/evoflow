@@ -218,3 +218,49 @@ WORKFLOW_TYPES = {
         "icon": "⚡",
     },
 }
+
+# ── Deterministic demo scenarios ──────────────────────────────────────────────
+# Each scenario defines a simulation_config with fixed seed + failure probs.
+# Use by passing simulation_config=DEMO_SCENARIOS["scenario_name"] to the engine.
+
+DEMO_SCENARIOS = {
+    "happy_path": {
+        "label": "Happy Path — All steps succeed",
+        "seed": 42,
+        "config": {step: {"failure_probability": 0.0} for step in ONBOARDING_STEPS},
+    },
+    "jira_failure": {
+        "label": "Jira Failure — Recovery + Escalation demo",
+        "seed": 42,
+        "config": {
+            **{step: {"failure_probability": 0.0} for step in ONBOARDING_STEPS},
+            "create_jira_access": {
+                "failure_probability": 1.0,
+                "failure_modes": ["JIRA_PROVISIONING_TIMEOUT"],
+            },
+        },
+    },
+    "multi_failure": {
+        "label": "Multi-System Failure — Shows breadth of recovery",
+        "seed": 42,
+        "config": {
+            "create_email_account":          {"failure_probability": 0.0},
+            "create_slack_account":          {"failure_probability": 0.8, "failure_modes": ["SLACK_INVITE_FAILED"]},
+            "create_jira_access":            {"failure_probability": 1.0, "failure_modes": ["JIRA_PROVISIONING_TIMEOUT"]},
+            "assign_buddy":                  {"failure_probability": 0.0},
+            "schedule_orientation_meetings": {"failure_probability": 0.7, "failure_modes": ["CALENDAR_CONFLICT"]},
+            "send_welcome_email":            {"failure_probability": 0.0},
+        },
+    },
+    "full_demo": {
+        "label": "Full Demo — Showcase all system capabilities",
+        "seed": 123,
+        "config": {
+            **{step: {"failure_probability": 0.0} for step in ONBOARDING_STEPS},
+            "create_jira_access": {
+                "failure_probability": 1.0,
+                "failure_modes": ["JIRA_PROVISIONING_TIMEOUT"],
+            },
+        },
+    },
+}
