@@ -122,8 +122,6 @@ Available scenarios:
 - `multi_failure`
 - `full_demo`
 
-See [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) and [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for the presentation flow.
-
 ## API Overview
 
 Run endpoints:
