@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Runtime data — audit files and learning state are generated, not committed
+backend/data/*.json
+
+# Keep the data directory itself tracked
+!backend/data/.gitkeep
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+
+# Dev/tooling artifacts
+.pytest_cache/
+context/
+CLAUDE.md
+DEMO_SCRIPT.md
+IMPLEMENTATION.md
+.claude/
