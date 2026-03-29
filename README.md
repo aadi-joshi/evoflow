@@ -174,8 +174,6 @@ backend/
 frontend/
 tests/
 README.md
-DEMO_RUNBOOK.md
-DEMO_SCRIPT.md
 Dockerfile
 render.yaml
 requirements.txt
